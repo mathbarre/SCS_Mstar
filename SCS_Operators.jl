@@ -7,7 +7,7 @@ using Wavelets
 
 FFTW.set_num_threads(4)
 
-export FFTspace,Fg
+export FFTspace,Fg,cleanIndex,myFFTBP,BasisPursuitOperator
 
 function myFFT(x::Array{Float64,1},s::String,idx_r::Array{Int64,1},idx_i::Array{Int64,1},m::Int64,wt::GLS{Wavelets.WT.PerBoundary})::Array{Float64,1}
     n_r = size(idx_r,1)
@@ -169,5 +169,79 @@ function FFTspace(m::Int64,idx::Array{Int64,1},wt::GLS{Wavelets.WT.PerBoundary})
     return (c,myFFTspace,usefull,scale,sigma,E)
 end
 
+function myFFTBP(x::Array{Float64,1},s::String,idx_r::Array{Int64,1},idx_i::Array{Int64,1},m::Int64,wt::GLS{Wavelets.WT.PerBoundary})::Array{Float64,1}
+    n_r = size(idx_r,1)
+    n_i = size(idx_i,1)
+    n = size(x,1)
+    if s == "T"
+        x_r = zeros(m)
+        #x_r[idx_r] = x[2:(Int((n+1)/2))]
+        x_r[idx_r] = x[1:(n_r)]
+        x_i = zeros(m)
+        #x_i[idx_i] = x[Int((n+1)/2+1):end]
+        x_i[idx_i] = x[(n_r+1):end]
+        dr = real(ifftshift(ifft(fftshift(reshape(x_r,Int(sqrt(m)),Int(sqrt(m)))))))*sqrt(m)
+        #dr = real((ifft((reshape(x_r,Int(sqrt(m)),Int(sqrt(m)))))))*m
+        #dr = dr[:]
+        di = -imag(ifftshift(ifft(fftshift(reshape(x_i,Int(sqrt(m)),Int(sqrt(m)))))))*sqrt(m)
+        #di = -imag((ifft((reshape(x_i,Int(sqrt(m)),Int(sqrt(m)))))))*m
+        #di = di[:]
+        d = dwt(dr+di,wt)
+        y = sqrt(2)*d[:]
+    else
+        d1 = fftshift(fft(ifftshift(idwt(reshape(x,Int(sqrt(m)),Int(sqrt(m))),wt))))/sqrt(m)
+        #d1 = (fft((reshape(x[1:(Int(n/2))],Int(sqrt(m)),Int(sqrt(m))))))
+        d1 =d1[:]
+        #d1 = d1[idx_r]
+        d1_r = real(d1[idx_r]) 
+        d1_i = imag(d1[idx_i])
+        y = [d1_r;d1_i]*sqrt(2)
+    end
+    return y
+end
 
+function BasisPursuitOperator(m::Int64,idx::Array{Int64,1},wt::GLS{Wavelets.WT.PerBoundary})
+    (idx_r,idx_i) = cleanIndex(idx,m)
+    n_r = length(idx_r)
+    n_i = length(idx_i)
+    usefull,scale = orthoNull(idx,m)
+    sigma = 1.0/sqrt(sum(scale)/2+sum(usefull))
+    rho = 1
+    c = [zeros(m);ones(m)]
+    D = ones(n_r+n_i)
+    r_idx = falses(m)
+    i_idx = falses(m)
+    r_idx[idx_r] = trues(n_r)
+    i_idx[idx_i] = trues(n_i)
+    j=1
+    for i = 1:m
+        if r_idx[i]
+            if !i_idx[i]
+                D[j] = 1/sqrt(2)
+            end
+            j += 1
+        end
+    end
+    D = [D;D;ones(2*m)]
+    myFFTspace(input,s) = begin 
+        n = size(input,1)
+        if s == "NT"
+            x  = input[1:Int(n/2)]
+            t = input[(Int(n/2)+1):end]
+            y = myFFTBP(x,s,idx_r,idx_i,m,wt)
+            y = [y;-y;x - t;.-x - t]
+        else 
+            x1 = input[1:(n_r+n_i)]
+            x2 = input[(n_r+n_i+1):((2*n_r+2*n_i))]
+            x3 = input[(2*n_r+2*n_i+1):(2*n_r+2*n_i+m)]
+            x4 = input[(2*n_r+2*n_i+m+1):end]
+            y1 = myFFTBP(x1,s,idx_r,idx_i,m,wt)
+            y2 = myFFTBP(x2,s,idx_r,idx_i,m,wt)
+            res = y1-y2+x3-x4
+            y = [res; .-(x3+x4)]
+        end    
+        return y
+    end
+    return (c,myFFTspace,usefull,scale,sigma,D)
+end    
 end

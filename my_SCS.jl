@@ -1,12 +1,13 @@
 module my_SCS
 
 import IterativeSolvers.minres
+import IterativeSolvers.cg
 using LinearMaps
 import LinearAlgebra.dot,LinearAlgebra.norm
 
 export SCSsolve
 
-function SCSsolve(Afun,c::Array{Float64,1},b::Array{Float64,1},alph::Float64,tol_p::Float64,tol_d::Float64,tol_g::Float64;sigma::Float64=1.0,rho::Float64=1.0,D::Array{Float64,1}=ones(length(b)),E::Array{Float64,1}=ones(length(c)))::Float64
+function SCSsolve(Afun,c::Array{Float64,1},b::Array{Float64,1},alph::Float64,tol_p::Float64,tol_d::Float64,tol_g::Float64;sigma::Float64=1.0,rho::Float64=1.0,D::Array{Float64,1}=ones(length(b)),E::Array{Float64,1}=ones(length(c)),verbose::Bool=false)::Array{Float64,1}
     n = size(c,1)
     m = size(b,1)
     u = [zeros(n+m);1]
@@ -25,7 +26,7 @@ function SCSsolve(Afun,c::Array{Float64,1},b::Array{Float64,1},alph::Float64,tol
     Mfun_(x) = [x[1:n]+Afun_scale(x[(n+1):(n+m)],"T");Afun_scale(x[1:n],"NT")-x[(n+1):(n+m)]]
     Mfun = LinearMap(Mfun_,n+m;issymmetric=true)
     #use minres with h_ because minres needs a symmetric matrix as argument
-    Minv_h = minres(Mfun,h_;tol=1e-14)
+    Minv_h = minres(Mfun,h_;tol=1e-8)
     #println(norm(Mfun_(Minv_h) -h_))
     
     p = 1e10
@@ -49,19 +50,23 @@ function SCSsolve(Afun,c::Array{Float64,1},b::Array{Float64,1},alph::Float64,tol
         d = (Afun_scale(u[(n+1):(n+m)]/normalize,"T") +c)/rho ./E
         g = (dot(c,u[1:n])/normalize + dot(b,u[(n+1):(n+m)])/normalize)/(rho*sigma)
         
-        # if mod(iter,50) == 0
-        #     println("")
-        #     println(norm(p)/(1+norm(b)))
-        #     println(norm(d)/(1+norm(c)))
-        #     println(abs(g)/(1+abs(dot(c,u[1:n])/u[n+m+1])+abs(dot(b,u[(n+1):(n+m)])/u[n+m+1])))
-        # end
+        if verbose
+            if mod(iter,50) == 0
+                println("")
+                println(norm(p)/(1+norm(b)))
+                println(norm(d)/(1+norm(c)))
+                println(abs(g)/(1+abs(dot(c,u[1:n])/u[n+m+1])+abs(dot(b,u[(n+1):(n+m)])/u[n+m+1])))
+                println(sum(u.^2)/size(u,1))
+            end
+        end
         iter += 1
         
     end
+    println(u[n+m+1])
     x =u[1:n]/u[n+m+1]
     x = E.*x/sigma
     #res = dot(c,x)
-    return x[1]
+    return x
 
 end
 
@@ -81,9 +86,9 @@ function SubspaceProj(w::Array{Float64,1},Afun,c::Array{Float64,1},b::Array{Floa
     AAfun_(x) = x+Afun(Afun(x,"NT"),"T");
     AAfun = LinearMap(AAfun_,n;issymmetric=true,isposdef=true)
     #real update
-    #zx = cg(AAfun,wx - Afun(wy,"T");tol=1e-6)
+    zx = cg(AAfun,wx - Afun(wy,"T");tol=1e-12)
     #here assume A'A = I
-    zx = (wx - Afun(wy,"T"))/2
+    #zx = (wx - Afun(wy,"T"))/2
     zy = wy + Afun(zx,"NT");
     
     u_ = zeros(m+n+1)
